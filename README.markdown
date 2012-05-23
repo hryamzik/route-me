@@ -75,13 +75,13 @@ Major changes in this fork (Alpstein/route-me)
 
 USAGE
 ------------
-   RMMapView *_mapView = [[RMMapView alloc] initWithFrame:[uiview bounds]
+      RMMapView *_mapView = [[RMMapView alloc] initWithFrame:[uiview bounds]
                                              andTilesource:osm
                                           centerCoordinate:spb
                                                  zoomLevel:10.0f
                                               maxZoomLevel:18.0f //[busTilesource maxZoom]//
                                               minZoomLevel:2.0f //[busTilesource minZoom] //
                                            backgroundImage:nil];
-   [_mapView addTileSource:busTilesource];
+      [_mapView addTileSource:busTilesource];
 
 Note the RMGenericMercatorWMSSource files in sources, they were done in arc enabled project.
