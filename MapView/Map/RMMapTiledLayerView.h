@@ -28,8 +28,6 @@
 
 @property (nonatomic, assign) id <RMMapTiledLayerViewDelegate> delegate;
 
-@property (nonatomic, assign) BOOL useSnapshotRenderer;
-
 - (id)initWithFrame:(CGRect)frame mapView:(RMMapView *)aMapView;
 
 @end

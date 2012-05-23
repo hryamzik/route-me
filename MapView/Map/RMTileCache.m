@@ -173,6 +173,18 @@
     }
 }
 
+- (void)removeTile:(RMTile)tile withCacheKey:(NSString *)aCacheKey
+{
+    [memoryCache removeTile:tile];
+    @synchronized (caches)
+    {
+        for (id<RMTileCache> cache in caches)
+        {
+            [cache removeTile:tile withCacheKey:aCacheKey];
+        }
+    }
+}
+
 @end
 
 #pragma mark -

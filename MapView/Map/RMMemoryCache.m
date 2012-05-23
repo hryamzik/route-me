@@ -81,6 +81,10 @@
     }
 }
 
+- (void)removeTile:(RMTile)tile withCacheKey:(NSString *)aCacheKey {
+    [self removeTile:tile];;
+}
+
 - (UIImage *)cachedImage:(RMTile)tile withCacheKey:(NSString *)aCacheKey
 {
 //    RMLog(@"Memory cache check  tile %d %d %d (%@)", tile.x, tile.y, tile.zoom, [RMTileCache tileHash:tile]);

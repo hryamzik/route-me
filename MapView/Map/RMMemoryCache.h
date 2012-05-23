@@ -36,6 +36,8 @@
 }
 
 - (id)initWithCapacity:(NSUInteger)aCapacity;
+- (void)removeTile:(RMTile)tile;
+- (void)removeTile:(RMTile)tile withCacheKey:(NSString *)aCacheKey;
 
 /// Remove the least-recently used image from cache, if cache is at or over capacity. Removes only 1 image.
 - (void)makeSpaceInCache;

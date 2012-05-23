@@ -43,5 +43,6 @@
 - (void)setPurgeStrategy:(RMCachePurgeStrategy)theStrategy;
 - (void)setCapacity:(NSUInteger)theCapacity;
 - (void)setMinimalPurge:(NSUInteger)thePurgeMinimum;
+- (void)removeTile:(RMTile)tile withCacheKey:(NSString *)aCacheKey;
 
 @end

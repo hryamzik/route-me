@@ -77,8 +77,8 @@
 
     @synchronized (cachedClusterAnnotation)
     {
-        [cachedClusterEnclosedAnnotations release]; cachedClusterEnclosedAnnotations = nil;
         [cachedClusterAnnotation release]; cachedClusterAnnotation = nil;
+        [cachedClusterEnclosedAnnotations release]; cachedClusterEnclosedAnnotations = nil;
     }
 
     @synchronized (annotations)
@@ -167,8 +167,8 @@
 
     @synchronized (cachedClusterAnnotation)
     {
-        [cachedClusterEnclosedAnnotations release]; cachedClusterEnclosedAnnotations = nil;
         [cachedClusterAnnotation release]; cachedClusterAnnotation = nil;
+        [cachedClusterEnclosedAnnotations release]; cachedClusterEnclosedAnnotations = nil;
     }
 
     if (RMProjectedRectIntersectsProjectedRect(quadTreeBounds, northWestBoundingBox))
@@ -418,8 +418,8 @@
             {
                 @synchronized (cachedClusterAnnotation)
                 {
-                    [cachedClusterEnclosedAnnotations release]; cachedClusterEnclosedAnnotations = nil;
                     [cachedClusterAnnotation release]; cachedClusterAnnotation = nil;
+                    [cachedClusterEnclosedAnnotations release]; cachedClusterEnclosedAnnotations = nil;
                 }
 
                 enclosedAnnotations = [NSArray arrayWithArray:annotationsToCheck];
@@ -435,8 +435,8 @@
             {
                 if (cachedClusterAnnotation && [enclosedAnnotations count] != [cachedClusterEnclosedAnnotations count])
                 {
-                    [cachedClusterEnclosedAnnotations release]; cachedClusterEnclosedAnnotations = nil;
                     [cachedClusterAnnotation release]; cachedClusterAnnotation = nil;
+                    [cachedClusterEnclosedAnnotations release]; cachedClusterEnclosedAnnotations = nil;
                 }
             }
 
@@ -446,11 +446,7 @@
 
                 if (enclosedAnnotationsCount < 2)
                 {
-                    @synchronized (annotations)
-                    {
-                        [someArray addObjectsFromArray:annotations];
-                    }
-
+                    [someArray addObjectsFromArray:enclosedAnnotations];
                     return;
                 }
 
@@ -467,7 +463,7 @@
                     }
 
                     averageX /= (double)enclosedAnnotationsCount;
-                    averageY /= (double)enclosedAnnotationsCount;
+                    averageY /= (double) enclosedAnnotationsCount;
 
                     double halfClusterMarkerWidth = clusterMarkerSize.width / 2.0,
                            halfClusterMarkerHeight = clusterMarkerSize.height / 2.0;
@@ -555,8 +551,8 @@
 
     @synchronized (cachedClusterAnnotation)
     {
-        [cachedClusterEnclosedAnnotations release]; cachedClusterEnclosedAnnotations = nil;
         [cachedClusterAnnotation release]; cachedClusterAnnotation = nil;
+        [cachedClusterEnclosedAnnotations release]; cachedClusterEnclosedAnnotations = nil;
     }
 
     [cachedEnclosedAnnotations release]; cachedEnclosedAnnotations = nil;

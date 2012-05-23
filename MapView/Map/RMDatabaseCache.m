@@ -208,6 +208,30 @@
 	return cachedImage;
 }
 
+- (void)removeTile:(RMTile)tile withCacheKey:(NSString *)aCacheKey
+{
+//    RMLog(@"removing tiles from the db cache for key %@", aCacheKey);
+//    NSLog(@"removing tiles from the db cache for key %@", aCacheKey);
+    
+    [writeQueue addOperationWithBlock:^{
+        [writeQueueLock lock];
+        
+        [queue inDatabase:^(FMDatabase *db)
+         {
+             BOOL result = [db executeUpdate:@"DELETE FROM ZCACHE WHERE cache_key = ?", aCacheKey];
+             
+             if (result == NO)
+                 RMLog(@"Error purging cache");
+             
+             [[db executeQuery:@"VACUUM"] close];
+         }];
+        
+        [writeQueueLock unlock];
+        
+        tileCount = [self countTiles];
+    }];
+}
+
 - (void)addImage:(UIImage *)image forTile:(RMTile)tile withCacheKey:(NSString *)aCacheKey
 {
     // TODO: Converting the image here (again) is not so good...

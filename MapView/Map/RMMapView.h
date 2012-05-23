@@ -36,6 +36,8 @@
 #import "RMMapOverlayView.h"
 #import "RMMapTiledLayerView.h"
 
+#import "RMTileSources.h"
+
 // constants for boundingMask
 enum {
     RMMapNoMinBound		= 0, // Map can be zoomed out past view limits
@@ -74,7 +76,9 @@ typedef enum {
     /// subview for the background image displayed while tiles are loading. Set its contents by providing your own "loading.png".
     UIView *backgroundView;
     UIScrollView *mapScrollView;
-    RMMapTiledLayerView *tiledLayerView;
+//    RMMapTiledLayerView *tiledLayerView;
+    NSMutableArray *tiledLayerViews;
+    UIView *mapLayerSuperView;
     RMMapOverlayView *overlayView;
 
     double metersPerPixel;
@@ -86,7 +90,8 @@ typedef enum {
     BOOL            enableClustering, positionClusterMarkersAtTheGravityCenter;
     CGSize          clusterMarkerSize, clusterAreaSize;
 
-    id <RMTileSource> tileSource;
+//    id <RMTileSource> tileSource;
+    RMTileSources *tileSources;
     RMTileCache *tileCache; // Generic tile cache
 
     /// minimum and maximum zoom number allowed for the view. #minZoom and #maxZoom must be within the limits of #tileSource but can be stricter; they are clamped to tilesource limits if needed.
@@ -97,6 +102,7 @@ typedef enum {
 }
 
 @property (nonatomic, assign) id <RMMapViewDelegate> delegate;
+@property (readonly) NSMutableSet *visibleAnnotations;
 
 // View properties
 @property (nonatomic, assign) BOOL enableDragging;
@@ -115,8 +121,7 @@ typedef enum {
 @property (nonatomic, readonly) float screenScale;
 @property (nonatomic, assign)   NSUInteger boundingMask;
 
-@property (nonatomic, assign)   BOOL adjustTilesForRetinaDisplay;
-@property (nonatomic, readonly) float adjustedZoomForRetinaDisplay; // takes adjustTilesForRetinaDisplay and screen scale into account
+@property (nonatomic, assign) BOOL adjustTilesForRetinaDisplay;
 
 @property (nonatomic, assign) float zoom; /// zoom level is clamped to range (minZoom, maxZoom)
 @property (nonatomic, assign) float minZoom;
@@ -131,7 +136,9 @@ typedef enum {
 @property (nonatomic, readonly) RMProjection *projection;
 @property (nonatomic, readonly) id <RMMercatorToTileProjection> mercatorToTileProjection;
 
-@property (nonatomic, retain) id <RMTileSource> tileSource;
+//@property (nonatomic, retain) id <RMTileSource> tileSource;
+@property (nonatomic, retain) RMTileSources *tileSources;
+
 @property (nonatomic, retain) RMTileCache *tileCache;
 
 @property (nonatomic, retain) UIView *backgroundView;
@@ -151,6 +158,18 @@ typedef enum {
     backgroundImage:(UIImage *)backgroundImage;
 
 - (void)setFrame:(CGRect)frame;
+
+- (void)logScrollSubViews;
+
+- (void)setTileSource:(id <RMTileSource>)newTileSource;
+
+- (void)addTileSource:(id <RMTileSource>)tileSource;
+
+- (void)insertTileSource:(id <RMTileSource>)tileSource atIndex:(int)index;
+
+- (void)removeTileSource:(id <RMTileSource>)tileSource;
+
+- (void)updateTileSource:(id <RMTileSource>)tileSource;
 
 #pragma mark -
 #pragma mark Movement
@@ -174,6 +193,7 @@ typedef enum {
 - (void)zoomInToNextNativeZoomAt:(CGPoint)pivot animated:(BOOL)animated;
 - (void)zoomOutToNextNativeZoomAt:(CGPoint)pivot animated:(BOOL)animated;
 
+- (void)zoomToCoordinate:(CLLocationCoordinate2D)coordinate atZoom:(float)newZoom animated:(BOOL)animated;
 - (void)zoomWithLatitudeLongitudeBoundsSouthWest:(CLLocationCoordinate2D)southWest northEast:(CLLocationCoordinate2D)northEast animated:(BOOL)animated;
 
 - (float)nextNativeZoomFactor;
@@ -237,6 +257,6 @@ typedef enum {
 #pragma mark Snapshots
 
 - (UIImage *)takeSnapshot;
-- (UIImage *)takeSnapshotAndIncludeOverlay:(BOOL)includeOverlay;
+- (UIImage *)takeSnapshotForMapBounds:(RMProjectedRect)bounds inRect:(CGRect)snapshotRect includeOverlay:(BOOL)includeOverlay;
 
 @end

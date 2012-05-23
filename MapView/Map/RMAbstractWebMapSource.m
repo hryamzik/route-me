@@ -31,16 +31,11 @@
 
 @implementation RMAbstractWebMapSource
 
-@synthesize retryCount, waitSeconds;
-
 - (id)init
 {
     if (!(self = [super init]))
         return nil;
-
-    self.retryCount = RMAbstractWebMapSourceDefaultRetryCount;
-    self.waitSeconds = RMAbstractWebMapSourceDefaultWaitSeconds;
-
+    
     return self;
 }
 
@@ -58,6 +53,7 @@
 
 - (UIImage *)imageForTile:(RMTile)tile inCache:(RMTileCache *)tileCache
 {
+//    NSLog(@"imageForTile at zoom %d", tile.zoom);
     __block UIImage *image = nil;
 
 	tile = [[self mercatorToTileProjection] normaliseTile:tile];
@@ -79,12 +75,12 @@
     //
     NSMutableArray *tilesData = [NSMutableArray arrayWithCapacity:[URLs count]];
 
-    for (int p = 0; p < [URLs count]; ++p)
+    for (int p = 0; p < [URLs count]; p++)
         [tilesData addObject:[NSNull null]];
 
     dispatch_group_t fetchGroup = dispatch_group_create();
 
-    for (int u = 0; u < [URLs count]; ++u)
+    for (int u = 0; u < [URLs count]; u++)
     {
         NSURL *currentURL = [URLs objectAtIndex:u];
 
@@ -92,11 +88,19 @@
         {
             NSData *tileData = nil;
 
-            for (int try = 0; tileData == nil && try < self.retryCount; ++try)
+            for (int try = 0; try < RMAbstractWebMapSourceRetryCount; try++)
             {
-                NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:currentURL];
-                [request setTimeoutInterval:(self.waitSeconds / (CGFloat)self.retryCount)];
-                tileData = [NSURLConnection sendSynchronousRequest:request returningResponse:nil error:nil];
+                if ( ! tileData)
+                {
+                    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:currentURL];
+                    
+                    NSString* userAgent = @"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_7_3) AppleWebKit/534.55.3 (KHTML, like Gecko) Version/5.1.5 Safari/534.55.3";
+                    [request setValue:userAgent forHTTPHeaderField:@"User-Agent"];
+                    
+                    [request setTimeoutInterval:(RMAbstractWebMapSourceWaitSeconds / (CGFloat)RMAbstractWebMapSourceRetryCount)];
+                    
+                    tileData = [NSURLConnection sendSynchronousRequest:request returningResponse:nil error:nil];
+                }
             }
 
             if (tileData)
@@ -113,7 +117,7 @@
 
     // wait for whole group of fetches (with retries) to finish, then clean up
     //
-    dispatch_group_wait(fetchGroup, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC * self.waitSeconds));
+    dispatch_group_wait(fetchGroup, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC * RMAbstractWebMapSourceWaitSeconds));
     dispatch_release(fetchGroup);
 
     // composite the collected images together
@@ -148,8 +152,14 @@
         [[NSNotificationCenter defaultCenter] postNotificationName:RMTileRetrieved object:[NSNumber numberWithUnsignedLongLong:RMTileKey(tile)]];
     });
 
-    if (!image)
+    if (!image) {
+//        NSLog(@"NO IMAGE ACTUNG RMTileLoadFailed @\"RMTileLoadFailed\"");
+        dispatch_async(dispatch_get_main_queue(), ^(void)
+                       {
+                           [[NSNotificationCenter defaultCenter] postNotificationName:RMTileLoadFailed object:self];
+                       });
         return [RMTileImage errorTile];
+    }
 
     return image;
 }

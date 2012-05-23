@@ -53,6 +53,8 @@ typedef enum {
 // removes all tile images from the memory and disk subcaches
 - (void)removeAllCachedImages;
 
+- (void)removeTile:(RMTile)tile withCacheKey:(NSString *)aCacheKey;
+
 @end
 
 #pragma mark -

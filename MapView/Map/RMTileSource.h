@@ -33,6 +33,7 @@
 
 #define RMTileRequested @"RMTileRequested"
 #define RMTileRetrieved @"RMTileRetrieved"
+#define RMTileLoadFailed @"RMTileLoadFailed"
 
 @class RMFractalTileProjection, RMTileCache, RMProjection, RMTileImage, RMTileCache;
 

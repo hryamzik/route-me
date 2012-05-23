@@ -68,8 +68,6 @@
 - (void)correctPositionOfAllAnnotations;
 - (void)correctPositionOfAllAnnotationsIncludingInvisibles:(BOOL)correctAllLayers wasZoom:(BOOL)wasZoom;
 
-- (void)correctMinZoomScaleForBoundingMask;
-
 @end
 
 #pragma mark -
@@ -115,6 +113,8 @@
 @synthesize enableClustering, positionClusterMarkersAtTheGravityCenter, clusterMarkerSize, clusterAreaSize;
 @synthesize adjustTilesForRetinaDisplay;
 
+@synthesize visibleAnnotations;
+
 #pragma mark -
 #pragma mark Initialization
 
@@ -129,17 +129,24 @@
 
     self.backgroundColor = [UIColor grayColor];
 
-    tileSource = nil;
+    tileSources = nil;
     projection = nil;
     mercatorToTileProjection = nil;
     mapScrollView = nil;
-    tiledLayerView = nil;
+    mapLayerSuperView = nil;
+//    tiledLayerView = nil;
+    tiledLayerViews = nil;
     overlayView = nil;
 
-    screenScale = [UIScreen mainScreen].scale;
+    screenScale = 1.0;
+    if ([[UIScreen mainScreen] respondsToSelector:@selector(scale)])
+    {
+        screenScale = [[[UIScreen mainScreen] valueForKey:@"scale"] floatValue];
+    }
 
     boundingMask = RMMapMinWidthBound;
-    adjustTilesForRetinaDisplay = NO;
+//    adjustTilesForRetinaDisplay = NO;
+    adjustTilesForRetinaDisplay = YES;
 
     annotations = [NSMutableSet new];
     visibleAnnotations = [NSMutableSet new];
@@ -155,8 +162,8 @@
     if (backgroundImage)
         self.backgroundView.layer.contents = (id)backgroundImage.CGImage;
 
-    if (minZoomLevel < newTilesource.minZoom) minZoomLevel = newTilesource.minZoom;
-    if (maxZoomLevel > newTilesource.maxZoom) maxZoomLevel = newTilesource.maxZoom;
+    if (minZoomLevel < tileSources.minZoom) minZoomLevel = tileSources.minZoom;
+    if (maxZoomLevel > tileSources.maxZoom) maxZoomLevel = tileSources.maxZoom;
     [self setMinZoom:minZoomLevel];
     [self setMaxZoom:maxZoomLevel];
     [self setZoom:initialZoomLevel];
@@ -169,7 +176,7 @@
                                                  name:UIApplicationDidReceiveMemoryWarningNotification
                                                object:nil];
 
-    RMLog(@"Map initialised. tileSource:%@, minZoom:%f, maxZoom:%f, zoom:%f at {%f,%f}", tileSource, [self minZoom], [self maxZoom], [self zoom], [self centerCoordinate].longitude, [self centerCoordinate].latitude);
+//    RMLog(@"Map initialised. tileSource:%@, minZoom:%f, maxZoom:%f, zoom:%f at {%f,%f}", tileSources, [self minZoom], [self maxZoom], [self zoom], [self centerCoordinate].longitude, [self centerCoordinate].latitude);
 }
 
 - (id)initWithCoder:(NSCoder *)aDecoder
@@ -242,6 +249,8 @@
 
 - (void)setFrame:(CGRect)frame
 {
+    NSLog(@"mapview setFrame called:");
+    NSLog(@"%.2f %.2f %.2f %.2f",frame.origin.x, frame.origin.y, frame.size.width, frame.size.height);
     CGRect r = self.frame;
     [super setFrame:frame];
 
@@ -251,9 +260,9 @@
         CGRect bounds = CGRectMake(0, 0, frame.size.width, frame.size.height);
         backgroundView.frame = bounds;
         mapScrollView.frame = bounds;
+//        mapLayerSuperView.frame = bounds;
         overlayView.frame = bounds;
         [self correctPositionOfAllAnnotations];
-        [self correctMinZoomScaleForBoundingMask];
     }
 }
 
@@ -267,11 +276,13 @@
     [annotations release]; annotations = nil;
     [visibleAnnotations release]; visibleAnnotations = nil;
     [[NSNotificationCenter defaultCenter] removeObserver:self];
-    [tiledLayerView release]; tiledLayerView = nil;
+//    [tiledLayerView release]; tiledLayerView = nil;
+    [tiledLayerViews release]; tiledLayerViews = nil;
     [mapScrollView removeObserver:self forKeyPath:@"contentOffset"];
     [mapScrollView release]; mapScrollView = nil;
+    [mapLayerSuperView release]; mapLayerSuperView = nil;
     [overlayView release]; overlayView = nil;
-    [tileSource cancelAllDownloads]; [tileSource release]; tileSource = nil;
+    [tileSources cancelAllDownloads]; [tileSources release]; tileSources = nil;
     [projection release]; projection = nil;
     [mercatorToTileProjection release]; mercatorToTileProjection = nil;
     [self setTileCache:nil];
@@ -282,7 +293,7 @@
 {
     LogMethod();
 
-    [tileSource didReceiveMemoryWarning];
+    [tileSources didReceiveMemoryWarning];
     [tileCache didReceiveMemoryWarning];
 }
 
@@ -415,6 +426,7 @@
 
 - (BOOL)tileSourceBoundsContainProjectedPoint:(RMProjectedPoint)point
 {
+    NSLog(@"tileSourceBoundsContainProjectedPoint");
     RMSphericalTrapezium bounds = [self.tileSource latitudeLongitudeBoundingBox];
 
     if (bounds.northEast.latitude == 90 && bounds.northEast.longitude == 180 &&
@@ -464,6 +476,7 @@
 
 - (void)setCenterCoordinate:(CLLocationCoordinate2D)centerCoordinate animated:(BOOL)animated
 {
+    NSLog(@"setCenterCoordinate animated");
     [self setCenterProjectedPoint:[projection coordinateToProjectedPoint:centerCoordinate] animated:animated];
 }
 
@@ -496,7 +509,7 @@
     if (_delegateHasBeforeMapMove)
         [delegate beforeMapMove:self];
 
-//    RMLog(@"Current contentSize: {%.0f,%.0f}, zoom: %f", mapScrollView.contentSize.width, mapScrollView.contentSize.height, self.zoom);
+    RMLog(@"Current contentSize: {%.0f,%.0f}, zoom: %f", mapScrollView.contentSize.width, mapScrollView.contentSize.height, self.zoom);
 
     RMProjectedRect planetBounds = projection.planetBounds;
 	RMProjectedPoint normalizedProjectedPoint;
@@ -534,26 +547,28 @@
 #pragma mark -
 #pragma mark Zoom
 
-- (void)setBoundingMask:(NSUInteger)mask
-{
-    boundingMask = mask;
+- (void)logScrollSubViews{
+    CGRect frame;
+    for (id tv in [mapScrollView subviews]) {
+        frame = [tv bounds];
+        NSLog(@"scrollSubViews:%.2f %.2f %.2f %.2f",frame.origin.x, frame.origin.y, frame.size.width, frame.size.height);
+        NSLog(@"zoom = %f", [mapScrollView zoomScale]);
+    }
+    NSLog(@"mapview contentScaleFactor = %f", [self contentScaleFactor]);
+    NSLog(@"mapScrollView contentScaleFactor = %f", [mapScrollView contentScaleFactor]);
 
-    [self correctMinZoomScaleForBoundingMask];
 }
 
-- (void)correctMinZoomScaleForBoundingMask
-{
-    if (self.boundingMask != RMMapNoMinBound)
-    {
-        CGFloat newMinZoomScale = (self.boundingMask == RMMapMinWidthBound ? self.bounds.size.width : self.bounds.size.height) / ((CATiledLayer *)tiledLayerView.layer).tileSize.width;
+- (void)drawRect:(CGRect)rect {
+    NSLog(@"mapview drawRect");
+}
 
-        if (mapScrollView.minimumZoomScale > 0 && newMinZoomScale > mapScrollView.minimumZoomScale)
-        {
-            RMLog(@"clamping min zoom of %f to %f due to %@", log2f(mapScrollView.minimumZoomScale), log2f(newMinZoomScale), (self.boundingMask == RMMapMinWidthBound ? @"RMMapMinWidthBound" : @"RMMapMinHeightBound"));
+- (void)viewWillLayoutSubviews {
+    NSLog(@"mapView viewWillLayoutSubviews");
+}
 
-            mapScrollView.minimumZoomScale = newMinZoomScale;
-        }
-    }
+- (void)viewDidLayoutSubviews {
+    NSLog(@"mapView viewDidLayoutSubviews");
 }
 
 - (RMProjectedRect)projectedBounds
@@ -838,6 +853,19 @@
 #pragma mark -
 #pragma mark Zoom With Bounds
 
+- (void)zoomToCoordinate:(CLLocationCoordinate2D)coordinate atZoom:(float)newZoom animated:(BOOL)animated
+{
+    RMProjectedRect zoomRect;
+    RMProjectedPoint myOrigin = [projection coordinateToProjectedPoint:coordinate];
+    // Default is with scale = 2.0 * mercators/pixel
+    zoomRect.size.width = [self bounds].size.width * newZoom;
+    zoomRect.size.height = [self bounds].size.height * newZoom;
+    myOrigin.x = myOrigin.x - (zoomRect.size.width / 2.0);
+    myOrigin.y = myOrigin.y - (zoomRect.size.height / 2.0);
+    zoomRect.origin = myOrigin;
+    [self setProjectedBounds:zoomRect animated:animated];
+}
+
 - (void)zoomWithLatitudeLongitudeBoundsSouthWest:(CLLocationCoordinate2D)southWest northEast:(CLLocationCoordinate2D)northEast animated:(BOOL)animated
 {
     if (northEast.latitude == southWest.latitude && northEast.longitude == southWest.longitude) // There are no bounds, probably only one marker.
@@ -916,23 +944,28 @@
 
 - (void)createMapView
 {
+    NSLog(@"createMapView called");
     [overlayView removeFromSuperview]; [overlayView release]; overlayView = nil;
     [visibleAnnotations removeAllObjects];
-
-    [tiledLayerView removeFromSuperview]; [tiledLayerView release]; tiledLayerView = nil;
-
+    
+    for (RMMapTiledLayerView *tiledLayerView in tiledLayerViews) {
+        [tiledLayerView removeFromSuperview]; [tiledLayerView release]; tiledLayerView = nil;
+    }
+    
+    [mapLayerSuperView removeFromSuperview]; [mapLayerSuperView release]; mapLayerSuperView = nil;
+    
     [mapScrollView removeObserver:self forKeyPath:@"contentOffset"];
     [mapScrollView removeFromSuperview]; [mapScrollView release]; mapScrollView = nil;
 
     _mapScrollViewIsZooming = NO;
 
-    int tileSideLength = [[self tileSource] tileSideLength];
+    int tileSideLength = [[self tileSources] tileSideLength];
     CGSize contentSize = CGSizeMake(tileSideLength, tileSideLength); // zoom level 1
-
+    NSLog(@"mapview frame = %@", [self bounds]);
     mapScrollView = [[UIScrollView alloc] initWithFrame:[self bounds]];
     mapScrollView.delegate = self;
     mapScrollView.opaque = NO;
-    mapScrollView.backgroundColor = [UIColor clearColor];
+    mapScrollView.backgroundColor = [UIColor whiteColor]; //clearColor];
     mapScrollView.showsVerticalScrollIndicator = NO;
     mapScrollView.showsHorizontalScrollIndicator = NO;
     mapScrollView.scrollsToTop = NO;
@@ -940,21 +973,38 @@
     mapScrollView.minimumZoomScale = exp2f([self minZoom]);
     mapScrollView.maximumZoomScale = exp2f([self maxZoom]);
     mapScrollView.contentOffset = CGPointMake(0.0, 0.0);
+    [mapScrollView setAutoresizesSubviews:NO]; 
+//    [mapScrollView setAutoresizingMask:UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight|UIViewAutoresizingFlexibleBottomMargin|UIViewAutoresizingFlexibleTopMargin|UIViewAutoresizingFlexibleLeftMargin|UIViewAutoresizingFlexibleRightMargin];
+//    [mapScrollView setAutoresizingMask:UIViewAutoresizingFlexibleHeight|UIViewAutoresizingFlexibleWidth];
+    
+    mapLayerSuperView = [[UIView alloc] initWithFrame:CGRectMake(0.0, 0.0, contentSize.width, contentSize.height)];
 
-    tiledLayerView = [[RMMapTiledLayerView alloc] initWithFrame:CGRectMake(0.0, 0.0, contentSize.width, contentSize.height) mapView:self];
-    tiledLayerView.delegate = self;
-
-    if (self.adjustTilesForRetinaDisplay && screenScale > 1.0)
-    {
-        RMLog(@"adjustTiles");
-        ((CATiledLayer *)tiledLayerView.layer).tileSize = CGSizeMake(tileSideLength * 2.0, tileSideLength * 2.0);
+//    [mapScrollView addSubview:mapLayerSuperView];
+//    [mapLayerSuperView setAutoresizesSubviews:NO];
+    
+    for (id <RMTileSource> tileSource in tileSources.tileSources) {
+        RMMapTiledLayerView *tiledLayerView = [[RMMapTiledLayerView alloc] initWithFrame:CGRectMake(0.0, 0.0, contentSize.width, contentSize.height) mapView:self];
+        tiledLayerView.delegate = self;
+        
+        if (self.adjustTilesForRetinaDisplay && screenScale > 1.0)
+        {
+            RMLog(@"adjustTiles");
+            ((CATiledLayer *)tiledLayerView.layer).tileSize = CGSizeMake(tileSideLength * 2.0, tileSideLength * 2.0);
+        }
+        else
+        {
+            NSLog(@"createmap not adjustTilesForRetinaDisplay");
+            ((CATiledLayer *)tiledLayerView.layer).tileSize = CGSizeMake(tileSideLength, tileSideLength);
+        }
+        
+        
+        [mapLayerSuperView addSubview:tiledLayerView];
+//        [mapScrollView addSubview:tiledLayerView];
+        NSLog(@"adding subview in create map");
     }
-    else
-    {
-        ((CATiledLayer *)tiledLayerView.layer).tileSize = CGSizeMake(tileSideLength, tileSideLength);
-    }
 
-    [mapScrollView addSubview:tiledLayerView];
+    [mapScrollView addSubview:mapLayerSuperView];
+
 
     [mapScrollView addObserver:self forKeyPath:@"contentOffset" options:NSKeyValueObservingOptionNew context:NULL];
     [mapScrollView setZoomScale:exp2f([self zoom]) animated:NO];
@@ -972,11 +1022,24 @@
     overlayView.delegate = self;
 
     [self insertSubview:overlayView aboveSubview:mapScrollView];
+//    NSLog(@"createMapView done");
 }
+
+- (void)layoutSubviews {
+//    NSLog(@"mapview layoutSubviews");
+    for (RMMapTiledLayerView *tiledView in [mapLayerSuperView subviews]) {
+        [tiledView layoutSubviews];
+    }
+}
+
+//- (void)didRotateFromInterfaceOrientation:(UIInterfaceOrientation)fromInterfaceOrientation{
+//    mapScrollView.frame = self.bounds;
+//}
 
 - (UIView *)viewForZoomingInScrollView:(UIScrollView *)scrollView
 {
-    return tiledLayerView;
+//    return tiledLayerView;
+    return [mapScrollView.subviews objectAtIndex:0];
 }
 
 - (void)scrollViewWillBeginDragging:(UIScrollView *)scrollView
@@ -1197,28 +1260,99 @@
 #pragma mark -
 #pragma mark Snapshots
 
-- (UIImage *)takeSnapshotAndIncludeOverlay:(BOOL)includeOverlay
+- (UIImage *)takeSnapshotForMapBounds:(RMProjectedRect)bounds inRect:(CGRect)snapshotRect includeOverlay:(BOOL)includeOverlay
 {
-    overlayView.hidden = !includeOverlay;
+    NSLog(@"Error! Running incomplete function takeSnapshotForMapBounds!");
+    CLLocationCoordinate2D bottomLeft = [projection projectedPointToCoordinate:bounds.origin];
+    CLLocationCoordinate2D topRight = [projection projectedPointToCoordinate:RMProjectedPointMake(bounds.origin.x + bounds.size.width, bounds.origin.y + bounds.size.height)];
+    CLLocationCoordinate2D topLeft = [projection projectedPointToCoordinate:RMProjectedPointMake(bounds.origin.x, bounds.origin.y + bounds.size.height)];
 
-    UIGraphicsBeginImageContextWithOptions(self.bounds.size, self.opaque, [[UIScreen mainScreen] scale]);
+    RMTile bottomLeftTile = [self tileWithCoordinate:bottomLeft andZoom:ceilf(zoom)];
+    RMTile topRightTile   = [self tileWithCoordinate:topRight andZoom:ceilf(zoom)];
+    RMTile topLeftTile    = [self tileWithCoordinate:topLeft andZoom:ceilf(zoom)];
 
-    tiledLayerView.useSnapshotRenderer = YES;
-    [self.layer renderInContext:UIGraphicsGetCurrentContext()];
-    tiledLayerView.useSnapshotRenderer = NO;
+    for (RMMapTiledLayerView *tiledLayerView in [mapLayerSuperView subviews]) {
+        CATiledLayer *tiledLayer = (CATiledLayer *)tiledLayerView.layer;
+        CGSize tileSize = tiledLayer.tileSize;
+        int tilesX = topRightTile.x - bottomLeftTile.x + 1;
+        int tilesY = bottomLeftTile.y - topRightTile.y + 1;
+        
+        double scale = (1<<(int)ceilf(zoom));
+        CGFloat zoomFactor = 1.0 - ((ceilf(zoom) - zoom) * 0.50);
+        
+        CLLocationCoordinate2D normalizedCoordinate = [self normalizeCoordinate:topLeft];
+        
+        CGFloat leftBorder = (((normalizedCoordinate.longitude * scale) - (double)bottomLeftTile.x) * (double)tileSize.width);
+        CGFloat topBorder  = (((normalizedCoordinate.latitude * scale) - (double)topLeftTile.y) * (double)tileSize.height);
+        
+        UIGraphicsBeginImageContextWithOptions(self.bounds.size, NO, [[UIScreen mainScreen] scale]);
+        
+        CGContextScaleCTM(UIGraphicsGetCurrentContext(), zoomFactor, zoomFactor);
+        
+        
+        for (int column=0; column<tilesX; column++)
+        {
+            for (int row=0; row<tilesY; row++)
+            {
+                //            int i = 0;
+                for (id <RMTileSource> ts in tileSources.tileSources) {
+                    UIImage *tileImage = [ts imageForTile:RMTileMake(bottomLeftTile.x + column, topRightTile.y + row, bottomLeftTile.zoom) inCache:tileCache];
+                    if (tileImage)
+                    {
+                        [tileImage drawInRect:CGRectMake(column * tileSize.width - leftBorder,
+                                                         row * tileSize.height - topBorder,
+                                                         tileSize.width,
+                                                         tileSize.height)];
+                        //                    //debug
+                        //                    NSString  *pngPath = [NSHomeDirectory() stringByAppendingPathComponent:
+                        //                                          [NSString stringWithFormat:@"Documents/tile[%d]x[%d]y[%d]z[%d].png",
+                        //                                           i, bottomLeftTile.x + column, topRightTile.y + row, bottomLeftTile.zoom]];
+                        //                    [UIImagePNGRepresentation(tileImage) writeToFile:pngPath atomically:YES];
+                        //                    NSError *error;
+                        //                    NSFileManager *fileMgr = [NSFileManager defaultManager];
+                        //                    NSString *documentsDirectory = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents"];
+                        //                    NSLog(@"Documents directory: %@", [fileMgr contentsOfDirectoryAtPath:documentsDirectory error:&error]);
+                        //
+                        //                    i++;
+                    }
+                }
+            }
+        }
+        
+        CGContextScaleCTM(UIGraphicsGetCurrentContext(), 1.0/zoomFactor, 1.0/zoomFactor);
 
-    UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
+    }
+
+    if (includeOverlay)
+    {
+        UIGraphicsBeginImageContextWithOptions(self.bounds.size, NO, [[UIScreen mainScreen] scale]);
+
+        [overlayView.layer renderInContext:UIGraphicsGetCurrentContext()];
+        UIImage *overlayImage = UIGraphicsGetImageFromCurrentImageContext();
+
+        UIGraphicsEndImageContext();
+
+        [overlayImage drawInRect:CGRectMake(0.0, 0.0, self.bounds.size.width, self.bounds.size.height)];
+    }
+
+    // final image
+    UIImage *finalImage = UIGraphicsGetImageFromCurrentImageContext();
 
     UIGraphicsEndImageContext();
 
-    overlayView.hidden = NO;
+    if (!CGRectEqualToRect(self.bounds, snapshotRect))
+    {
+        CGImageRef imageRef = CGImageCreateWithImageInRect([finalImage CGImage], snapshotRect);
+        finalImage = [UIImage imageWithCGImage:imageRef];
+        CGImageRelease(imageRef);
+    }
 
-    return image;
+    return finalImage;
 }
 
 - (UIImage *)takeSnapshot
 {
-    return [self takeSnapshotAndIncludeOverlay:YES];
+    return [self takeSnapshotForMapBounds:[self projectedBounds] inRect:self.bounds includeOverlay:YES];
 }
 
 #pragma mark -
@@ -1226,25 +1360,41 @@
 
 - (id <RMTileSource>)tileSource
 {
-    return [[tileSource retain] autorelease];
+    NSLog(@"ACTUNG!!! RETURNING TILESOURCE!");
+    return [[[tileSources.tileSources objectAtIndex:0] retain] autorelease];
 }
 
-- (void)setTileSource:(id <RMTileSource>)newTileSource
+- (RMTileSources *)tileSources
 {
-    if (tileSource == newTileSource)
-        return;
+//    NSLog(@"ACTUNG!!! RETURNING TILESOURCEs!");
+    return [[tileSources retain] autorelease];
+}
 
-    [tileSource cancelAllDownloads];
-    [tileSource autorelease];
-    tileSource = [newTileSource retain];
+- (void)setTileSource:(id <RMTileSource>)newTileSource {
+    [newTileSource retain];
+    RMTileSources *rmts = [RMTileSources new];
+    rmts.tileSources = [[NSMutableArray alloc] initWithObjects:newTileSource, nil];
+    [self setTileSources:rmts];
+    [rmts autorelease];
+}
+
+
+- (void)setTileSources:(RMTileSources *)newTileSources
+{
+//    if (tileSource == newTileSource)
+//        return;
+
+    [tileSources cancelAllDownloads];
+    [tileSources autorelease];
+    tileSources = [newTileSources retain];
 
     [projection release];
-    projection = [[tileSource projection] retain];
+    projection = [[tileSources projection] retain];
 
     [mercatorToTileProjection release];
-    mercatorToTileProjection = [[tileSource mercatorToTileProjection] retain];
+    mercatorToTileProjection = [[tileSources mercatorToTileProjection] retain];
 
-    RMSphericalTrapezium bounds = [tileSource latitudeLongitudeBoundingBox];
+    RMSphericalTrapezium bounds = [[tileSources.tileSources objectAtIndex:0] latitudeLongitudeBoundingBox];
 
     _constrainMovement = !(bounds.northEast.latitude == 90.0 && bounds.northEast.longitude == 180.0 && bounds.southWest.latitude == -90.0 && bounds.southWest.longitude == -180.0);
 
@@ -1253,14 +1403,79 @@
     else
         _constrainingProjectedBounds = projection.planetBounds;
 
-    [self setMinZoom:newTileSource.minZoom];
-    [self setMaxZoom:newTileSource.maxZoom];
+    [self setMinZoom:tileSources.minZoom];
+    [self setMaxZoom:tileSources.maxZoom];
     [self setZoom:[self zoom]]; // setZoom clamps zoom level to min/max limits
 
     // Reload the map with the new tilesource
-    tiledLayerView.layer.contents = nil;
+    NSLog(@"setTileSources:(RMTileSources *)newTileSources");
+    for (RMMapTiledLayerView *tiledLayerView in [mapLayerSuperView subviews]) {
+        tiledLayerView.layer.contents = nil;
+        [tiledLayerView.layer setNeedsDisplay];
+    }
+}
+
+- (void)addTileSource:(id <RMTileSource>)tileSource {
+    NSLog(@"Adding tile %@. Views=%d, tiles=%d",[tileSource uniqueTilecacheKey], [mapLayerSuperView.subviews count], [tileSources.tileSources count] );
+    [tileSources.tileSources addObject:tileSource];
+
+    RMMapTiledLayerView *tiledLayerView = [self prepareNewLayerView];
+    
+//    [mapLayerSuperView insertSubview:tiledLayerView atIndex:[[mapLayerSuperView subviews] count]];
+
+    [mapLayerSuperView addSubview:tiledLayerView];
+
+    NSLog(@"Added tile. Views=%d, tiles=%d",[mapLayerSuperView.subviews count], [tileSources.tileSources count] );
+}
+
+- (void)insertTileSource:(id <RMTileSource>)tileSource atIndex:(int)index {
+    [tileSources.tileSources insertObject:tileSource atIndex:index];
+    
+    RMMapTiledLayerView *tiledLayerView = [self prepareNewLayerView];
+    
+    [mapLayerSuperView insertSubview:tiledLayerView atIndex:index];
+}
+
+- (RMMapTiledLayerView *)prepareNewLayerView {
+    int tileSideLength = [[self tileSources] tileSideLength];
+    CGSize contentSize = CGSizeMake(tileSideLength, tileSideLength); // zoom level 1
+    RMMapTiledLayerView *tiledLayerView = [[RMMapTiledLayerView alloc] initWithFrame:CGRectMake(0.0, 0.0, contentSize.width, contentSize.height) mapView:self];
+    tiledLayerView.delegate = self;
+    
+    if (self.adjustTilesForRetinaDisplay && screenScale > 1.0)
+    {
+        RMLog(@"adjustTiles");
+        ((CATiledLayer *)tiledLayerView.layer).tileSize = CGSizeMake(tileSideLength * 2.0, tileSideLength * 2.0);
+    }
+    else
+    {
+        ((CATiledLayer *)tiledLayerView.layer).tileSize = CGSizeMake(tileSideLength, tileSideLength);
+        NSLog(@"addTileSource adjustTilesForRetinaDisplay");
+    }
+    return tiledLayerView;
+}
+
+- (void)removeTileSource:(id <RMTileSource>)tileSource {
+    int index = [tileSources.tileSources indexOfObject:tileSource];
+    NSLog(@"Removing tile %d. Views=%d, tiles=%d", index, [mapLayerSuperView.subviews count], [tileSources.tileSources count] );
+    [[mapLayerSuperView.subviews objectAtIndex:index] removeFromSuperview];
+    [tileSources.tileSources removeObject:tileSource];
+    NSLog(@"Removed tile. Views=%d, tiles=%d",[mapLayerSuperView.subviews count], [tileSources.tileSources count] );
+}
+
+- (void)updateTileSource:(id <RMTileSource>)tileSource {
+    int index = [tileSources.tileSources indexOfObject:tileSource];
+    RMMapTiledLayerView *tiledLayerView = [mapLayerSuperView.subviews objectAtIndex:index];
+//    NSLog(@"Updating layer at index %d, layer %@", index, tiledLayerView);
+//    tiledLayerView.layer.contents = nil;
     [tiledLayerView.layer setNeedsDisplay];
 }
+
+//-(void)checkviews{
+//    for (UIView *mview in [mapLayerSuperView subviews] ) {
+//        [mapLayerSuperView.subviews indexOfObject:mview];
+//    }
+//}
 
 - (UIView *)backgroundView
 {
@@ -1325,8 +1540,6 @@
 //    RMLog(@"New minZoom:%f", newMinZoom);
 
     mapScrollView.minimumZoomScale = exp2f(newMinZoom);
-
-    [self correctMinZoomScaleForBoundingMask];
 }
 
 - (void)setMaxZoom:(float)newMaxZoom
@@ -1387,28 +1600,13 @@
 
 - (void)setAdjustTilesForRetinaDisplay:(BOOL)doAdjustTilesForRetinaDisplay
 {
+    NSLog(@"setAdjustTilesForRetinaDisplay");
     if (adjustTilesForRetinaDisplay == doAdjustTilesForRetinaDisplay)
         return;
 
     adjustTilesForRetinaDisplay = doAdjustTilesForRetinaDisplay;
 
-    // Not so good: this replicates functionality from createMapView
-    int tileSideLength = [[self tileSource] tileSideLength];
-
-    if (adjustTilesForRetinaDisplay && screenScale > 1.0)
-        ((CATiledLayer *)tiledLayerView.layer).tileSize = CGSizeMake(tileSideLength * 2.0, tileSideLength * 2.0);
-    else
-        ((CATiledLayer *)tiledLayerView.layer).tileSize = CGSizeMake(tileSideLength, tileSideLength);
-
-    [self setCenterCoordinate:self.centerCoordinate animated:NO];
-}
-
-- (float)adjustedZoomForRetinaDisplay
-{
-    if (!self.adjustTilesForRetinaDisplay && screenScale > 1.0)
-        return [self zoom] + 1.0;
-
-    return [self zoom];
+    [self createMapView];
 }
 
 - (RMProjection *)projection
@@ -1741,6 +1939,7 @@
 
 - (void)addAnnotation:(RMAnnotation *)annotation
 {
+    NSLog(@"addAnnotation");
     @synchronized (annotations)
     {
         [annotations addObject:annotation];
